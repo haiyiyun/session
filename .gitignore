@@ -12,7 +12,6 @@
 run/
 log/*.log
 test/
-go.sum
 
 # IntelliJ related
 *.iml
