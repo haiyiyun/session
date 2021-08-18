@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"go.haiyiyun.org/utils/help"
-	"go.haiyiyun.org/utils/mapping"
+	"github.com/haiyiyun/utils/help"
+	"github.com/haiyiyun/utils/mapping"
 )
 
 type Session struct {

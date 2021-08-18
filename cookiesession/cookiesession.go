@@ -19,8 +19,8 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
-	"go.haiyiyun.org/log"
-	"go.haiyiyun.org/utils/help"
+	"github.com/haiyiyun/log"
+	"github.com/haiyiyun/utils/help"
 	"net/http"
 	"strings"
 )

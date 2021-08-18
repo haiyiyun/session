@@ -10,8 +10,8 @@ import (
 	"sync"
 
 	"github.com/garyburd/redigo/redis"
-	"go.haiyiyun.org/log"
-	"go.haiyiyun.org/utils/help"
+	"github.com/haiyiyun/log"
+	"github.com/haiyiyun/utils/help"
 	// "time"
 )
 

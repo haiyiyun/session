@@ -24,8 +24,8 @@ import (
 	//(1)
 	//"errors"
 	//(1)
-	"go.haiyiyun.org/log"
-	"go.haiyiyun.org/utils/help"
+	"github.com/haiyiyun/log"
+	"github.com/haiyiyun/utils/help"
 	"io"
 	"io/ioutil"
 	"net/http"
