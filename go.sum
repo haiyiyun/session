@@ -4,9 +4,9 @@ github.com/garyburd/redigo v1.6.4 h1:LFu2R3+ZOPgSMWMOL+saa/zXRjw0ID2G8FepO53BGlg
 github.com/garyburd/redigo v1.6.4/go.mod h1:rTb6epsqigu3kYKBnaF028A7Tf/Aw5s0cqA47doKKqw=
 github.com/haiyiyun/log v0.0.0-20250714021242-243291bf2f88 h1:K0c5SzBlwtvDLoRykKHetDJEDMPtBM4Je9Ox+k13YiA=
 github.com/haiyiyun/log v0.0.0-20250714021242-243291bf2f88/go.mod h1:REISaucR2styQ62sk//GZEiv8pQNcOEkCjR0J/fG4bg=
-github.com/haiyiyun/utils v0.0.0-20250714020932-661b878827da h1:bIbjYkpePTvRda9ILLLwVv+f/5otGUudkPVor0OGGgc=
-github.com/haiyiyun/utils v0.0.0-20250714020932-661b878827da/go.mod h1:fRBQfqUEvZQPPvFY5EwwpJhB6PRtIL7DpvjPr0aTtwY=
-github.com/haiyiyun/uuid v0.0.0-20250713200226-2d57fe9fb802 h1:HFLfi4+UGq2jo7HW0AtQEWFaEBGQQ8kCv5WrMzjI2CM=
-github.com/haiyiyun/uuid v0.0.0-20250713200226-2d57fe9fb802/go.mod h1:8gtEO75m6Oojsi2ZNtOkSIfBnY0a5mKcF7eXlSQlvG8=
+github.com/haiyiyun/utils v0.0.0-20250715175739-00233869a314 h1:I0bg0rIfyUxvfIDVoTs/tfyIkm8GOnoOqkKR5+RO8uA=
+github.com/haiyiyun/utils v0.0.0-20250715175739-00233869a314/go.mod h1:+5DxcTNOt+2IXGfl3rSdw0rAMv+zC6uahXh/6p83JNc=
+github.com/haiyiyun/uuid v0.0.0-20250714025316-0cd7ec9ae801 h1:wDEXb81l7Yutg1GGJ7O3SQgOiOIoc7KjkYPbRoUfFzY=
+github.com/haiyiyun/uuid v0.0.0-20250714025316-0cd7ec9ae801/go.mod h1:HMZKdmFUjiCWhA92aiDGME/gwcX0viOEi6SdOMxMy5E=
 go.mongodb.org/mongo-driver v1.17.4 h1:jUorfmVzljjr0FLzYQsGP8cgN/qzzxlY9Vh0C9KFXVw=
 go.mongodb.org/mongo-driver v1.17.4/go.mod h1:Hy04i7O2kC4RS06ZrhPRqj/u4DTYkFDAAccj+rVKqgQ=
