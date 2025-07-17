@@ -26,5 +26,5 @@ type Manager interface {
 	SetToResponse(w http.ResponseWriter, s Session)
 	Destroy(ctx context.Context, sessionID string) error
 	Refresh(ctx context.Context, sessionID string, duration time.Duration) error
-	RegenerateSessionID(ctx context.Context, oldSessionID string) (string, error) // 添加缺失的方法声明
+	RegenerateSessionID(ctx context.Context, oldSessionID string) (string, error)
 }

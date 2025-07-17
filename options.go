@@ -1,7 +1,17 @@
 package session
 
-// 配置选项
+import (
+	"net/http"
+	"time"
+)
+
 type Option func(*sessionManager)
+
+type ComplianceConfig struct {
+	MaxSessionDuration    time.Duration
+	InactivityTimeout     time.Duration
+	PasswordChangeRefresh bool
+}
 
 func WithCookieName(name string) Option {
 	return func(m *sessionManager) {
@@ -27,14 +37,12 @@ func WithSessionCookie(sessionCookie bool) Option {
 	}
 }
 
-// 强制要求安全密钥配置
 func WithSecurityTokenKey(key []byte) Option {
 	return func(m *sessionManager) {
 		m.securityTokenKey = key
 	}
 }
 
-// 提供默认值但允许覆盖
 func WithCookieConfig(name string, secure bool) Option {
 	return func(m *sessionManager) {
 		m.cookieName = name
@@ -42,9 +50,21 @@ func WithCookieConfig(name string, secure bool) Option {
 	}
 }
 
-// 新增合规性配置选项
 func WithComplianceConfig(config ComplianceConfig) Option {
 	return func(m *sessionManager) {
 		m.complianceConfig = config
+	}
+}
+
+func WithCookiePath(path string) Option {
+	return func(m *sessionManager) {
+		m.cookiePath = path
+	}
+}
+
+// 添加 SameSite 配置选项
+func WithSameSite(sameSite http.SameSite) Option {
+	return func(m *sessionManager) {
+		m.sameSite = sameSite
 	}
 }

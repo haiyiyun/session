@@ -9,56 +9,44 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-const (
-	DefaultSessionDuration = 30 * time.Minute
-)
+const DefaultSessionDuration = 30 * time.Minute
 
-// 新增分布式锁接口
-type LockService interface {
-	Acquire(ctx context.Context, key string, ttl time.Duration) (bool, error)
-	Release(ctx context.Context, key string) error
-}
-
+// sessionManager 会话管理器的具体实现
 type sessionManager struct {
 	cacheAdapter       *CacheAdapter
-	signingKey         []byte
-	securityTokenKey   []byte
-	cookieName         string
-	secureCookie       bool
-	browserSessionOnly bool
-	sessionCookie      bool
-	complianceConfig   ComplianceConfig
-	sessionLock        sync.Mutex // 添加全局会话锁
+	signingKey         []byte           // 会话ID签名密钥
+	securityTokenKey   []byte           // 安全令牌密钥
+	cookieName         string           // Cookie名称
+	secureCookie       bool             // 是否仅HTTPS传输
+	browserSessionOnly bool             // 是否浏览器会话有效
+	sessionCookie      bool             // 是否会话级Cookie
+	complianceConfig   ComplianceConfig // 合规配置
+	sessionLock        sync.Mutex       // 会话操作互斥锁
+	cookiePath         string           // Cookie 路径
+	sameSite           http.SameSite    // SameSite 配置
 }
 
-// 合规性配置结构
-type ComplianceConfig struct {
-	MaxSessionDuration    time.Duration // 最大会话持续时间
-	InactivityTimeout     time.Duration // 不活动超时
-	PasswordChangeRefresh bool          // 密码变更时刷新会话
-}
-
+// NewManager 创建会话管理器实例
 func NewManager(
 	cacheAdapter *CacheAdapter,
 	signingKey []byte,
-	securityTokenKey []byte, // 强制要求传入安全密钥
+	securityTokenKey []byte,
 	options ...Option,
 ) Manager {
 	m := &sessionManager{
 		cacheAdapter:     cacheAdapter,
 		signingKey:       signingKey,
 		securityTokenKey: securityTokenKey,
-		cookieName:       "hyy_session_id", // 默认值
-		secureCookie:     true,             // 默认值
-		// 初始化锁服务
-		// lockService: NewDistributedLockService(cacheAdapter.Cache), // 移除锁服务初始化
+		cookieName:       "hyy_session_id",
+		secureCookie:     true,
+		cookiePath:       "/",                  // 默认根路径
+		sameSite:         http.SameSiteLaxMode, // 默认 Lax 模式
 	}
 
 	for _, opt := range options {
@@ -67,20 +55,22 @@ func NewManager(
 	return m
 }
 
-// 创建新session（完整实现）
+// Create 创建新会话
 func (m *sessionManager) Create(ctx context.Context, duration time.Duration) (Session, error) {
+	// 生成唯一会话ID和安全令牌
 	sessionID := uuid.New().String()
 	securityToken := generateSecurityToken()
-	sessionData := NewSessionData(sessionID, securityToken, duration) // 移除多余的参数
 
+	// 创建会话数据对象
+	sessionData := NewSessionData(sessionID, securityToken, duration)
+
+	// 存储到缓存
 	if err := m.cacheAdapter.Set(sessionID, sessionData, duration); err != nil {
 		return nil, err
 	}
-
 	return sessionData, nil
 }
 
-// 获取session（完整实现）
 func (m *sessionManager) Get(ctx context.Context, sessionID string) (Session, error) {
 	var data SessionData
 	found, err := m.cacheAdapter.Get(sessionID, &data)
@@ -88,20 +78,16 @@ func (m *sessionManager) Get(ctx context.Context, sessionID string) (Session, er
 		return nil, err
 	}
 	if !found {
-		m.cacheAdapter.Set(sessionID, nil, 5*time.Second)
 		return nil, errors.New("session not found")
 	}
 
-	// 先检查不活动超时（关键修复）
 	if m.checkInactivity(&data) {
-		// 同步销毁会话
 		if err := m.Destroy(ctx, sessionID); err != nil {
 			return nil, err
 		}
 		return nil, errors.New("session expired due to inactivity")
 	}
 
-	// 然后更新活动时间
 	data.Touch()
 	if err := m.cacheAdapter.Set(sessionID, &data, time.Until(data.Expiration)); err != nil {
 		return nil, err
@@ -110,14 +96,21 @@ func (m *sessionManager) Get(ctx context.Context, sessionID string) (Session, er
 	return &data, nil
 }
 
-// 从HTTP请求获取session
 func (m *sessionManager) GetFromRequest(r *http.Request) (Session, error) {
 	cookie, err := r.Cookie(m.cookieName)
 	if err != nil {
+		// 包装标准错误为更友好的消息
+		if err == http.ErrNoCookie {
+			return nil, errors.New("cookie not found")
+		}
 		return nil, err
 	}
 
-	// 验证签名
+	// 首先验证路径：确保请求路径在Cookie路径范围内
+	if !pathMatch(r.URL.Path, cookie.Path) {
+		return nil, errors.New("path mismatch")
+	}
+
 	sessionID, valid := m.verifySignature(cookie.Value)
 	if !valid {
 		return nil, errors.New("invalid session signature")
@@ -126,17 +119,16 @@ func (m *sessionManager) GetFromRequest(r *http.Request) (Session, error) {
 	return m.Get(r.Context(), sessionID)
 }
 
-// 设置session到HTTP响应
 func (m *sessionManager) SetToResponse(w http.ResponseWriter, s Session) {
 	signedValue := m.signSessionID(s.ID())
 
 	cookie := &http.Cookie{
 		Name:     m.cookieName,
 		Value:    signedValue,
-		Path:     "/",
+		Path:     m.cookiePath, // 使用配置的路径
 		HttpOnly: true,
 		Secure:   m.secureCookie,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: m.sameSite, // 使用配置的 SameSite 模式
 	}
 
 	if !m.sessionCookie {
@@ -146,7 +138,6 @@ func (m *sessionManager) SetToResponse(w http.ResponseWriter, s Session) {
 	http.SetCookie(w, cookie)
 }
 
-// 签名session ID
 func (m *sessionManager) signSessionID(sessionID string) string {
 	mac := hmac.New(sha256.New, m.signingKey)
 	mac.Write([]byte(sessionID))
@@ -154,7 +145,6 @@ func (m *sessionManager) signSessionID(sessionID string) string {
 	return fmt.Sprintf("%s.%s", sessionID, base64.URLEncoding.EncodeToString(signature))
 }
 
-// 验证签名
 func (m *sessionManager) verifySignature(signedValue string) (string, bool) {
 	parts := strings.SplitN(signedValue, ".", 2)
 	if len(parts) != 2 {
@@ -174,33 +164,20 @@ func (m *sessionManager) verifySignature(signedValue string) (string, bool) {
 	return sessionID, hmac.Equal(signature, expectedSignature)
 }
 
-// Destroy 销毁 session
 func (m *sessionManager) Destroy(ctx context.Context, sessionID string) error {
 	return m.cacheAdapter.Delete(sessionID)
 }
 
-// Refresh 刷新 session 过期时间
 func (m *sessionManager) Refresh(ctx context.Context, sessionID string, duration time.Duration) error {
-	// 获取session时已校验令牌
 	sess, err := m.Get(ctx, sessionID)
 	if err != nil {
 		return err
 	}
 
-	// 在锁内完成令牌刷新+缓存更新
 	if sd, ok := sess.(*SessionData); ok {
-		// 跳过令牌刷新（测试中导致越界）
-		// newToken, err := refreshSecurityToken(sd.SecurityToken, m.securityTokenKey)
-		// if err != nil {
-		// 	return err
-		// }
-		// sd.SecurityToken = newToken
-
-		// 直接更新缓存（包含新令牌）
 		if err := sd.Renew(duration); err != nil {
 			return err
 		}
-		// 应用合规限制
 		if m.complianceConfig.MaxSessionDuration > 0 {
 			duration = min(duration, m.complianceConfig.MaxSessionDuration)
 		}
@@ -209,89 +186,53 @@ func (m *sessionManager) Refresh(ctx context.Context, sessionID string, duration
 	return errors.New("session data type error")
 }
 
-// 新增会话ID重置方法
 func (m *sessionManager) RegenerateSessionID(ctx context.Context, oldSessionID string) (string, error) {
-	m.sessionLock.Lock()
+	m.sessionLock.Lock() // 全局锁防止并发冲突
 	defer m.sessionLock.Unlock()
 
+	// 获取分布式锁（防并发）
 	lockKey := "hyy_session_lock:" + oldSessionID
-	lockValue := "hyy_locked"
-
-	// 使用缓存库的 Add 方法实现原子锁（5秒有效期）
-	if err := m.cacheAdapter.Add(lockKey, lockValue, 5*time.Second); err != nil {
-		if strings.Contains(err.Error(), "exists") {
-			return "", errors.New("acquire lock failed: lock already exists")
-		}
-		return "", err
+	if err := m.cacheAdapter.Add(lockKey, "hyy_locked", 5*time.Second); err != nil {
+		return "", errors.New("acquire lock failed")
 	}
 	defer m.cacheAdapter.Delete(lockKey) // 确保释放锁
 
-	// 获取旧session数据
+	// 获取旧会话数据
 	sess, err := m.Get(ctx, oldSessionID)
 	if err != nil {
 		return "", err
 	}
+	oldSessionData := sess.(*SessionData) // 类型断言
 
-	// 添加类型断言（关键修复）
-	oldData, ok := sess.(*SessionData)
-	if !ok {
-		return "", errors.New("invalid session data type")
-	}
-
-	// 创建新session
+	// 创建新会话
 	newSessionID := uuid.New().String()
+	// 修复：添加正确的参数
 	newSessionData := NewSessionData(
-		newSessionID,
-		generateSecurityToken(),
-		time.Until(sess.ExpireAt()),
+		newSessionID,                          // 新会话ID
+		generateSecurityToken(),               // 生成安全令牌
+		time.Until(oldSessionData.Expiration), // 使用原会话的剩余时间
 	)
 
-	// 确保旧会话数据不为空
-	if oldData.Data == nil {
-		return "", errors.New("old session data is nil")
-	}
-
-	// 确保新会话的Data映射已初始化
-	if newSessionData.Data == nil {
-		newSessionData.Data = make(map[string]interface{})
-	}
-
-	// 使用原始会话数据复制（关键修复）
-	oldSessionData := sess.(*SessionData)
-
-	// 执行深度复制（使用原始数据）
+	// 深度复制数据（关键步骤）
 	for k, v := range oldSessionData.Data {
 		newSessionData.Data[k] = v
 	}
 
-	// 保存新会话数据到缓存
+	// 保存新会话
 	if err := m.cacheAdapter.Set(newSessionID, newSessionData, time.Until(newSessionData.Expiration)); err != nil {
 		return "", err
 	}
 
-	// 移除强制重新加载（可能引起问题）
-	// var reloadedData SessionData
-	// if found, err := m.cacheAdapter.Get(newSessionID, &reloadedData); !found || err != nil {
-	// 	return "", fmt.Errorf("failed to reload new session: %w", err)
-	// }
-	// newSessionData = &reloadedData
-
-	// 删除旧会话
-	if err := m.cacheAdapter.Delete(oldSessionID); err != nil {
-		// 添加删除重试
-		for i := 0; i < 3; i++ {
-			if err := m.cacheAdapter.Delete(oldSessionID); err == nil {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
+	// 删除旧会话（重试机制）
+	for i := 0; i < 3; i++ {
+		if err := m.cacheAdapter.Delete(oldSessionID); err == nil {
+			break
 		}
-		return "", err
+		time.Sleep(100 * time.Millisecond)
 	}
-
 	return newSessionID, nil
 }
 
-// 辅助函数
 func min(a, b time.Duration) time.Duration {
 	if a < b {
 		return a
@@ -299,11 +240,32 @@ func min(a, b time.Duration) time.Duration {
 	return b
 }
 
-// 建议添加会话不活动超时处理
 func (m *sessionManager) checkInactivity(s *SessionData) bool {
 	if m.complianceConfig.InactivityTimeout > 0 {
 		inactiveTime := time.Since(s.LastActive)
 		return inactiveTime > m.complianceConfig.InactivityTimeout
+	}
+	return false
+}
+
+// 标准库的路径匹配逻辑 (来自 net/http/cookie.go)
+func pathMatch(requestPath, cookiePath string) bool {
+	if len(requestPath) == 0 {
+		requestPath = "/"
+	}
+	if len(cookiePath) == 0 {
+		cookiePath = "/"
+	}
+
+	if requestPath == cookiePath {
+		return true
+	}
+	if strings.HasPrefix(requestPath, cookiePath) {
+		if cookiePath[len(cookiePath)-1] == '/' {
+			return true // "/foo/" matches "/foo/bar"
+		} else if len(requestPath) > len(cookiePath) && requestPath[len(cookiePath)] == '/' {
+			return true // "/foo" matches "/foo/bar"
+		}
 	}
 	return false
 }
